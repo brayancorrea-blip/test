@@ -32,19 +32,16 @@ DB_CONFIG = {
 }
 
 # General Settings
-DEFAULT_PASSWORD = "Sgdea2025*"
+DEFAULT_PASSWORD = "Sgdea2025*" # Default password for new or updated users in Keycloak/Bonita
 MAX_THREADS = 5
-CSV_FILE = "usersWithRoles.csv"
-OUTPUT_EXCEL_PREFIX = "usuarios_y_roles"
+CSV_FILE = "usersWithRoles.csv" # Input CSV file for users and roles
+OUTPUT_EXCEL_PREFIX = "usuarios_y_roles_reporte" # Prefix for the output Excel report file
 
 # --- Helper Functions ---
 
-def to_upper_preserve_accents(text: str) -> str:
-    """Converts text to uppercase, preserving accented characters."""
-    return text.upper()
-
 def map_user_type(usertype_raw: str) -> str:
     """Maps raw user type string to a standardized 'Proveedor' or 'Interno'."""
+    # This assumes 'PROVEEDOR' is the only non-Interno type. Adjust as needed.
     return "Proveedor" if usertype_raw.strip().upper() == "PROVEEDOR" else "Interno"
 
 def get_db_connection():
@@ -117,6 +114,7 @@ class KeycloakClient:
                     "username": username,
                     "firstName": user_data["first_name"],
                     "lastName": user_data["last_name"],
+                    "email": user_data.get("email", ""), # Include email if available
                     "enabled": True,
                     "credentials": [{"type": "password", "value": DEFAULT_PASSWORD, "temporary": False}]
                 }
@@ -177,6 +175,7 @@ class BonitaClient:
                     "firstname": user_data["first_name"],
                     "lastname": user_data["last_name"],
                     "password": DEFAULT_PASSWORD,
+                    "email": user_data.get("email", ""), # Include email if available
                     "enabled": "true"
                 }
                 self.session.put(url_update, json=payload).raise_for_status()
@@ -189,6 +188,7 @@ class BonitaClient:
                     "firstname": user_data["first_name"],
                     "lastname": user_data["last_name"],
                     "password": DEFAULT_PASSWORD,
+                    "email": user_data.get("email", ""), # Include email if available
                     "enabled": "true"
                 }
                 self.session.post(url_create, json=payload).raise_for_status()
@@ -204,7 +204,7 @@ def get_job_titles_from_db(cursor) -> dict:
     """Fetches job titles and their IDs from the database."""
     try:
         cursor.execute("SELECT nombre, id FROM cargos")
-        return {nombre.upper(): id_ for nombre, id_ in cursor.fetchall()}
+        return {nombre.strip(): id_ for nombre, id_ in cursor.fetchall()}
     except psycopg2.Error as e:
         logger.error(f"Error fetching job titles from DB: {e}")
         raise
@@ -213,35 +213,67 @@ def assign_role_in_db(row: dict, cursor) -> str:
     """Assigns a role to a user in the database."""
     documento = row['document']
     role_name = row['role_name']
-    location_name = row['location_name']
+    location_name = row['location_name'] # This is the 'OFICINA' or 'DEPENDENCIA' from CSV
 
     try:
+        # Get user_id
         cursor.execute("SELECT id FROM usuarios WHERE numero_documento = %s", (documento,))
         user_id = cursor.fetchone()
         if not user_id:
             return "❌ User not found in DB"
         user_id = user_id[0]
 
+        # Get role_id
         cursor.execute("SELECT id FROM roles WHERE nombre = %s", (role_name,))
         role_id = cursor.fetchone()
         if not role_id:
             return f"❌ Role '{role_name}' not found"
         role_id = role_id[0]
 
-        # Determine location ID (Oficina or SeccionSubseccion)
-        cursor.execute("SELECT id FROM oficina WHERE nombre = %s", (location_name,))
-        office_id_result = cursor.fetchone()
+        section_id = None
+        office_id = None
 
+        # 1. Try to find location_name directly in seccionsubseccion.nombre
         cursor.execute("SELECT idseccionsubseccion FROM seccionsubseccion WHERE nombre = %s", (location_name,))
-        section_id_result = cursor.fetchone()
+        seccionsubseccion_match = cursor.fetchone()
 
-        section_id = office_id_result[0] if office_id_result else (section_id_result[0] if section_id_result else None)
-        office_id = office_id_result[0] if office_id_result else None
+        if seccionsubseccion_match:
+            section_id = seccionsubseccion_match[0]
+            # If it's a seccionsubseccion by name, it might also be an oficina with the same ID.
+            # Check if an oficina exists with this section_id as its ID.
+            cursor.execute("SELECT id FROM oficina WHERE id = %s", (section_id,))
+            office_match = cursor.fetchone()
+            if office_match:
+                office_id = office_match[0] # The oficina's ID is the same as the section's ID
+            logger.info(f"Location '{location_name}' found as seccionsubseccion (ID: {section_id}), office ID: {office_id if office_id else 'N/A'})")
+        else:
+            # 2. If not found in seccionsubseccion, try to find it in oficina.nombre
+            logger.debug(f"Location '{location_name}' not found in seccionsubseccion. Attempting to find in oficina.nombre...")
+            cursor.execute("SELECT id, id_dependencia FROM oficina WHERE nombre = %s", (location_name,))
+            oficina_match = cursor.fetchone()
+
+            if oficina_match:
+                office_id = oficina_match[0] # This is the ID of the oficina
+                dependent_section_id = oficina_match[1] # This is the crucial id_dependencia (FK to seccionsubseccion)
+
+                # Now, validate that this dependent_section_id is indeed a valid seccionsubseccion
+                cursor.execute("SELECT idseccionsubseccion FROM seccionsubseccion WHERE idseccionsubseccion = %s", (dependent_section_id,))
+                if cursor.fetchone():
+                    section_id = dependent_section_id
+                    logger.info(f"Location '{location_name}' found as oficina (ID: {office_id}), using its id_dependencia ({section_id}) as seccionsubseccion_id.")
+                else:
+                    logger.warning(f"Location '{location_name}' found as oficina (ID: {office_id}), but its id_dependencia ({dependent_section_id}) is not a valid seccionsubseccion ID. Skipping role assignment.")
+                    return f"❌ Location dependency not valid: {location_name}"
+            else:
+                logger.error(f"Location '{location_name}' was not found in either seccionsubseccion or oficina tables.")
+                return f"❌ Location '{location_name}' not found in 'seccionsubseccion' or 'oficina'."
 
         if not section_id:
-            return f"❌ Location '{location_name}' not found"
+            # This should ideally not be reached if the above logic is sound, but as a fallback
+            return f"❌ Failed to determine a valid seccionsubseccion ID for location '{location_name}'."
 
         # Check if relationship already exists
+        # Use IS NOT DISTINCT FROM for handling NULLs correctly in comparisons
         cursor.execute("""
             SELECT 1 FROM usuario_relacion
             WHERE usuario_id = %s AND rol_id = %s AND seccionsubseccion_id = %s AND oficina_id IS NOT DISTINCT FROM %s
@@ -265,6 +297,7 @@ def insert_or_update_user_in_db(row: dict, cargo_id: int, user_type: str, cursor
     """Inserts a new user into the database or does nothing if they exist."""
     documento = row['document']
     try:
+        # Check if user exists (just a check, not an upsert on entire user record)
         cursor.execute("SELECT 1 FROM usuarios WHERE numero_documento = %s", (documento,))
         if not cursor.fetchone():
             logger.info(f"User '{documento}' not found in DB, inserting.")
@@ -291,8 +324,8 @@ def insert_or_update_user_in_db(row: dict, cargo_id: int, user_type: str, cursor
 
 def process_user_entry(row: dict, keycloak_client: KeycloakClient, bonita_client: BonitaClient, cargos_dict: dict) -> tuple:
     """Processes a single user entry, interacting with Keycloak, Bonita, and the database."""
-    full_name = f"{row['first_name']} {row['last_name']}"
-    document = row['document']
+    full_name = f"{row.get('first_name', '')} {row.get('last_name', '')}"
+    document = row.get('document', 'N/A') # Use .get() for safety
     logger.info(f"Processing user: {full_name} ({document})")
 
     keycloak_status = "Skipped"
@@ -301,19 +334,24 @@ def process_user_entry(row: dict, keycloak_client: KeycloakClient, bonita_client
     db_role_status = "Skipped"
 
     try:
-        cargo_nombre = to_upper_preserve_accents(row['job_title'].strip())
+        # Ensure that validation has been done upstream by main()
+        cargo_nombre = row['job_title'] # Already stripped and validated by main()
         user_type = map_user_type(row['user_type'])
+        
+        # Ensure cargo_id is retrieved from the pre-fetched dictionary
         cargo_id = cargos_dict.get(cargo_nombre)
 
         if cargo_id is None:
-            logger.warning(f"Job title '{row['job_title']}' not found in DB for user {document}. Skipping DB user insertion.")
-            db_user_status = "❌ Job title not found"
+            # This should ideally not happen if main() validated job_title correctly
+            # but as a fallback, mark as error and skip DB user insertion.
+            logger.error(f"Internal error: Job title '{cargo_nombre}' unexpectedly not found in DB dict for user {document}.")
+            db_user_status = "❌ Job title lookup error"
 
         user_data_common = {
             "username": document,
             "first_name": row['first_name'],
             "last_name": row['last_name'],
-            "email": row['email'] # Added email for completeness in user_data
+            "email": row['email']
         }
 
         # Keycloak
@@ -327,22 +365,31 @@ def process_user_entry(row: dict, keycloak_client: KeycloakClient, bonita_client
         bonita_status = "✔️ Bonita ready" if bonita_success else "❌ Bonita error"
 
         # Database operations
-        if keycloak_success and bonita_success: # Only proceed if Keycloak and Bonita were successful
-            with get_db_connection() as conn:
-                with conn.cursor() as cursor:
-                    # Insert/update user in 'usuarios' table
-                    if cargo_id is not None:
-                        db_user_status = insert_or_update_user_in_db(row, cargo_id, user_type, cursor)
-                    else:
-                        db_user_status = "❌ Job title not found for DB user insertion"
+        # Only proceed if Keycloak and Bonita were successful
+        if keycloak_success and bonita_success:
+            try:
+                with get_db_connection() as conn:
+                    with conn.cursor() as cursor:
+                        # Insert/update user in 'usuarios' table
+                        if cargo_id is not None:
+                            db_user_status = insert_or_update_user_in_db(row, cargo_id, user_type, cursor)
+                        else:
+                            # This path means cargo_id was None, so DB user insertion is skipped
+                            db_user_status = "❌ Job title not found for DB user insertion"
 
-                    # Assign role in 'usuario_relacion'
-                    if "✅ User inserted into DB" in db_user_status or "⚠️ User already exists in DB" in db_user_status:
-                         db_role_status = assign_role_in_db(row, cursor)
-                    else:
-                        db_role_status = "Skipped role assignment due to DB user issue"
+                        # Assign role in 'usuario_relacion'
+                        # Only attempt role assignment if user insertion/existence check was successful
+                        # and there wasn't a job title issue for the DB user part.
+                        if ("✅ User inserted into DB" in db_user_status or "⚠️ User already exists in DB" in db_user_status) and cargo_id is not None:
+                            db_role_status = assign_role_in_db(row, cursor)
+                        else:
+                            db_role_status = "Skipped role assignment due to preceding DB user issue or job title error"
 
-                conn.commit() # Commit transaction if everything successful
+                    conn.commit() # Commit transaction if everything successful
+            except Exception as db_exc:
+                logger.error(f"Database operation failed for user {document}: {db_exc}", exc_info=True)
+                db_user_status = f"❌ DB Connection/Operation Error: {str(db_exc)}"
+                db_role_status = f"❌ DB Connection/Operation Error: {str(db_exc)}"
         else:
             db_user_status = "Skipped due to Keycloak/Bonita failure"
             db_role_status = "Skipped due to Keycloak/Bonita failure"
@@ -379,89 +426,104 @@ def generate_excel_report(results: list, file_prefix: str = OUTPUT_EXCEL_PREFIX)
 
 # --- Main Execution ---
 
-def main():
-    logger.info("=== Starting Unified User and Role Provisioning Process ===")
-
-    # Initialize clients
-    keycloak_client = KeycloakClient(KEYCLOAK_URL, REALM_NAME, CLIENT_ID, CLIENT_SECRET)
-    bonita_client = BonitaClient(BONITA_URL, BONITA_ADMIN_USER, BONITA_ADMIN_PASS)
-
-    # Get job titles from DB (needed for DB user insertion)
+def get_valid_data_from_db(conn) -> tuple:
+    """Obtiene los títulos de trabajo, roles y ubicaciones válidas de la base de datos."""
+    cursor = conn.cursor()
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cargos_dict = get_job_titles_from_db(cursor)
-    except Exception as e:
-        logger.critical(f"Failed to initialize: Could not retrieve job titles from DB. Exiting. {e}")
-        return
-
-    processed_results = []
-    unique_rows_to_process = []
-    seen_keys = set() # To track unique combinations of (document, location, role)
-
-    try:
-        with open(CSV_FILE, newline='', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for i, row in enumerate(reader):
-                # Validate essential fields are not empty
-                if not all(row.get(col) for col in ['document', 'first_name', 'last_name', 'email', 'job_title', 'user_type', 'location_name', 'role_name']):
-                    logger.warning(f"Skipping row {i+2} due to missing essential fields: {row}")
-                    # Capture skipped rows for the report if needed, or just log
-                    processed_results.append((
-                        f"{row.get('first_name', '')} {row.get('last_name', '')}",
-                        row.get('document', 'N/A'),
-                        row.get('email', 'N/A'),
-                        row.get('job_title', 'N/A'),
-                        row.get('user_type', 'N/A'),
-                        row.get('location_name', 'N/A'),
-                        row.get('role_name', 'N/A'),
-                        "❌ Skipped (Missing Data)",
-                        "❌ Skipped (Missing Data)"
-                    ))
-                    continue
-
-                # Create a unique key for deduplication
-                row_key = (row['document'], row['location_name'], row['role_name'])
-                if row_key in seen_keys:
-                    logger.info(f"Skipping duplicate entry: {row_key}")
-                    processed_results.append((
-                        f"{row['first_name']} {row['last_name']}",
-                        row['document'],
-                        row['email'],
-                        row['job_title'],
-                        row['user_type'],
-                        row['location_name'],
-                        row['role_name'],
-                        "⚠️ Skipped (Duplicate Entry)",
-                        "⚠️ Skipped (Duplicate Entry)"
-                    ))
-                else:
-                    unique_rows_to_process.append(row)
-                    seen_keys.add(row_key)
-
-        if not unique_rows_to_process:
-            logger.info("No valid unique user entries found in the CSV to process.")
-            generate_excel_report(processed_results)
-            return
-
-        # Process users concurrently
-        with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-            futures = [executor.submit(process_user_entry, row, keycloak_client, bonita_client, cargos_dict)
-                       for row in unique_rows_to_process]
-            for future in futures:
-                processed_results.append(future.result())
-
-    except FileNotFoundError:
-        logger.critical(f"Error: CSV file '{CSV_FILE}' not found. Please ensure it's in the correct directory.")
-        return
-    except Exception as e:
-        logger.critical(f"An unexpected error occurred during CSV reading or main processing: {e}", exc_info=True)
-        return
+        # Obtener títulos de trabajo válidos
+        cursor.execute("SELECT DISTINCT nombre FROM cargos ORDER BY nombre")
+        valid_job_titles = {row[0].strip() for row in cursor.fetchall()}
+        
+        # Obtener nombres de roles válidos
+        cursor.execute("SELECT DISTINCT nombre FROM roles ORDER BY nombre")
+        valid_role_names = {row[0].strip() for row in cursor.fetchall()}
+        
+        # Obtener ubicaciones válidas de seccionsubseccion
+        cursor.execute("SELECT DISTINCT nombre FROM seccionsubseccion ORDER BY nombre")
+        valid_locations_seccion = {row[0].strip() for row in cursor.fetchall()}
+        
+        # Obtener ubicaciones válidas de oficinas que no están en seccionsubseccion
+        cursor.execute("""
+            SELECT DISTINCT o.nombre 
+            FROM oficina o 
+            LEFT JOIN seccionsubseccion s ON o.nombre = s.nombre 
+            WHERE s.nombre IS NULL 
+            ORDER BY o.nombre
+        """)
+        valid_locations_oficina = {row[0].strip() for row in cursor.fetchall()}
+        
+        # Combinar todas las ubicaciones válidas
+        valid_locations = valid_locations_seccion | valid_locations_oficina
+        
+        return valid_job_titles, valid_role_names, valid_locations
+    except psycopg2.Error as e:
+        logger.error(f"Error obteniendo datos válidos de la BD: {e}")
+        raise
     finally:
-        # Always generate a report even if errors occurred
-        generate_excel_report(processed_results)
-        logger.info("✅ Process finalized.")
+        cursor.close()
 
+def validate_csv_data(csv_data: list, valid_job_titles: set, valid_role_names: set, valid_locations: set) -> tuple:
+    """Valida los datos del CSV contra las listas válidas de la base de datos."""
+    invalid_jobs = set()
+    invalid_roles = set()
+    invalid_locations = set()
+    
+    for row in csv_data:
+        if row['job_title'] not in valid_job_titles:
+            invalid_jobs.add(row['job_title'])
+        if row['role_name'] not in valid_role_names:
+            invalid_roles.add(row['role_name'])
+        if row['location_name'] not in valid_locations:
+            invalid_locations.add(row['location_name'])
+    
+    return invalid_jobs, invalid_roles, invalid_locations
+
+def main():
+    # Establecer conexión a la base de datos
+    conn = get_db_connection()
+    try:
+        # Obtener datos válidos de la BD
+        logger.info("Obteniendo datos válidos de la base de datos...")
+        valid_job_titles, valid_role_names, valid_locations = get_valid_data_from_db(conn)
+        
+        # Leer datos del CSV
+        logger.info(f"Leyendo datos del archivo CSV: {CSV_FILE}")
+        with open(CSV_FILE, 'r', encoding='utf-8') as file:
+            csv_reader = csv.DictReader(file)
+            csv_data = list(csv_reader)
+
+
+        print("Datos válidos de la base de datos:")
+        print("Títulos de trabajo:", valid_job_titles)
+        print("Nombres de roles:", valid_role_names)
+        print("Ubicaciones:", valid_locations)
+        
+        # Validar datos del CSV
+        invalid_jobs, invalid_roles, invalid_locations = validate_csv_data(
+            csv_data, valid_job_titles, valid_role_names, valid_locations
+        )
+        
+        # Verificar si hay datos inválidos
+        if invalid_jobs or invalid_roles or invalid_locations:
+            logger.error("Se encontraron datos inválidos en el CSV:")
+            if invalid_jobs:
+                logger.error(f"Títulos de trabajo inválidos: {invalid_jobs}")
+            if invalid_roles:
+                logger.error(f"Roles inválidos: {invalid_roles}")
+            if invalid_locations:
+                logger.error(f"Ubicaciones inválidas: {invalid_locations}")
+            logger.error("Por favor, corrija los datos y vuelva a intentar.")
+            return
+        
+        # Continuar con el procesamiento si todos los datos son válidos
+        logger.info("Todos los datos del CSV son válidos. Continuando con el procesamiento...")
+        # ... existing code ...
+
+    except Exception as e:
+        logger.error(f"Error durante la ejecución: {e}")
+        raise
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
     main()

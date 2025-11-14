@@ -3,7 +3,7 @@ WITH datos_a_verificar (
     accion_modificacion, departamento_id, municipio_id, cargo_nombre_str, timeout_min
 ) AS (
 VALUES
-    ('1024588020', 'Lady', 'Hernandez', TRUE, 'lady.hernandez@linktic.com', '1024588020', 1, 'Proveedor', 3, 'Creacion de usuario', 6, 149, 'PROFESIONAL', 4)
+    ('1110451323', 'DIANA MARCELA', 'ALVARADO DELGADILLO', TRUE, 'DIANA.ALVARADO@POSITIVA.GOV.CO', '1110451323', 1, 'Proveedor', 3, 'Creacion de usuario', 6, 149, 'PROFESIONAL', 4),
 )
 SELECT DISTINCT dv.cargo_nombre_str AS "Cargos No Encontrados en la Tabla 'cargos'"
 FROM datos_a_verificar dv

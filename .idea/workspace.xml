@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="16f7d98b-84ed-4fa4-839e-ce7eafbfb991" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/createRoles.py" beforeDir="false" afterPath="$PROJECT_DIR$/createRoles.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/createUser.py" beforeDir="false" afterPath="$PROJECT_DIR$/createUser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/createUsersWithRoles.py" beforeDir="false" afterPath="$PROJECT_DIR$/createUsersWithRoles.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/promptRoles.txt" beforeDir="false" afterPath="$PROJECT_DIR$/promptRoles.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/promptUsers.txt" beforeDir="false" afterPath="$PROJECT_DIR$/promptUsers.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/promptUsersWithRoles.txt" beforeDir="false" afterPath="$PROJECT_DIR$/promptUsersWithRoles.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/roles.csv" beforeDir="false" afterPath="$PROJECT_DIR$/roles.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/script_create_users.sql" beforeDir="false" afterPath="$PROJECT_DIR$/script_create_users.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/script_roles.sql" beforeDir="false" afterPath="$PROJECT_DIR$/script_roles.sql" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/usersWithRoles.csv" beforeDir="false" afterPath="$PROJECT_DIR$/usersWithRoles.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/usuarios.csv" beforeDir="false" afterPath="$PROJECT_DIR$/usuarios.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/usuarios2.csv" beforeDir="false" afterPath="$PROJECT_DIR$/usuarios2.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/usuarios_y_roles_2025-07-04_15-19.xlsx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/usuarios_y_roles_2025-07-04_15-23-24.xlsx" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/~$usuarios_y_roles_2025-07-04_15-23-24.xlsx" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 4
+}]]></component>
+  <component name="ProjectId" id="35U1l09M07e23PWHhripEtfrVgq" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "master",
+    "last_opened_file_path": "C:/projects/test"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="16f7d98b-84ed-4fa4-839e-ce7eafbfb991" name="Changes" comment="" />
+      <created>1763149983778</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1763149983778</updated>
+    </task>
+    <servers />
+  </component>
+</project>

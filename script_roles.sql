@@ -3,30 +3,24 @@ WITH datos_crudos (documento_usuario, nombre_ubicacion, nombre_rol) AS (
         ('1012454567', 'GERENCIA JURÍDICA', 'Gestionador')
 ),
 datos_calculados AS (
-    SELECT
-        dc.documento_usuario,
-        dc.nombre_ubicacion,
-        dc.nombre_rol,
-        u.id AS usuario_id,
-        CASE
-            WHEN dc.nombre_ubicacion IN ('GRUPO PQRD INDEMNIZACIONES', 'GRUPO PQRD MÉDICA', 'GRUPO ADMINISTRACIÓN DE PENSIONES', 'GERENCIA MEDICA EXCELENCIA', '6 GRUPO JUNTAS DE CALIFICACIÓN', '6 GRUPO CENTRO DE EXCELENCIA', 'GRUPO DE ATENCIÓN INTEGRAL Y DE SERVICIO AL CIUDADANO', 'GRUPO TUTELAS', 'ADMINISTRACION DE PRESTACIONES PERIODICAS', 'PUNTO DE ATENCIÓN APARTADÓ', 'PUNTO DE ATENCIÓN AMAZONAS', 'PUNTO DE ATENCIÓN BUENAVENTURA')
-            THEN (SELECT id_dependencia FROM oficina o_esp WHERE o_esp.nombre = dc.nombre_ubicacion)
-            ELSE (SELECT idseccionsubseccion FROM seccionsubseccion ss WHERE ss.nombre = dc.nombre_ubicacion) -- Assuming 'id' is the correct column name here
-        END AS seccionsubseccion_id,
-        CASE
-            WHEN dc.nombre_ubicacion IN ('GRUPO PQRD INDEMNIZACIONES', 'GRUPO PQRD MÉDICA', 'GRUPO ADMINISTRACIÓN DE PENSIONES', 'GERENCIA MEDICA EXCELENCIA', '6 GRUPO JUNTAS DE CALIFICACIÓN', '6 GRUPO CENTRO DE EXCELENCIA', 'GRUPO DE ATENCIÓN INTEGRAL Y DE SERVICIO AL CIUDADANO', 'GRUPO TUTELAS', 'ADMINISTRACION DE PRESTACIONES PERIODICAS', 'PUNTO DE ATENCIÓN APARTADÓ', 'PUNTO DE ATENCIÓN AMAZONAS', 'PUNTO DE ATENCIÓN BUENAVENTURA')
-            THEN (SELECT id FROM oficina o_esp WHERE o_esp.nombre = dc.nombre_ubicacion)
-            ELSE NULL
-        END AS oficina_id,
-        r.id AS rol_id,
-        CASE
-            WHEN dc.nombre_ubicacion IN ('GRUPO PQRD INDEMNIZACIONES', 'GRUPO PQRD MÉDICA', 'GRUPO ADMINISTRACIÓN DE PENSIONES', 'GERENCIA MEDICA EXCELENCIA', '6 GRUPO JUNTAS DE CALIFICACIÓN', '6 GRUPO CENTRO DE EXCELENCIA', 'GRUPO DE ATENCIÓN INTEGRAL Y DE SERVICIO AL CIUDADANO', 'GRUPO TUTELAS', 'ADMINISTRACION DE PRESTACIONES PERIODICAS', 'PUNTO DE ATENCIÓN APARTADÓ', 'PUNTO DE ATENCIÓN AMAZONAS', 'PUNTO DE ATENCIÓN BUENAVENTURA') THEN 'GRUPO_ESPECIAL'
-            ELSE 'SECCION_UNICA'
-        END AS tipo_ubicacion_mapeo
-    FROM
-        datos_crudos dc
-    LEFT JOIN usuarios u ON u.numero_documento = dc.documento_usuario
-    LEFT JOIN roles r ON r.nombre = dc.nombre_rol
+                SELECT
+                    dc.documento_usuario,
+                    dc.nombre_ubicacion,
+                    dc.nombre_rol,
+                    u.id AS usuario_id,
+                    r.id AS rol_id,
+                    o.id_dependencia AS seccionsubseccion_id_oficina,
+                    o.id AS oficina_id,
+                    s.idseccionsubseccion AS seccionsubseccion_id_seccion,
+                    CASE
+                        WHEN o.id IS NOT NULL THEN 'GRUPO_ESPECIAL'
+                        ELSE 'SECCION_UNICA'
+                    END AS tipo_ubicacion_mapeo
+                FROM datos_crudos dc
+                LEFT JOIN usuarios u ON u.numero_documento = dc.documento_usuario
+                LEFT JOIN roles r ON r.nombre = dc.nombre_rol
+                LEFT JOIN oficina o ON o.nombre = dc.nombre_ubicacion
+                LEFT JOIN seccionsubseccion s ON s.nombre = dc.nombre_ubicacion
 ),
 -- CTE para identificar los registros que SÍ se insertarían (no existen y tienen IDs válidos)
 registros_a_insertar_procesado AS (
@@ -171,33 +165,27 @@ ORDER BY estado_registro, documento_usuario, nombre_ubicacion, nombre_rol;
 
 WITH datos_crudos (documento_usuario, nombre_ubicacion, nombre_rol) AS (
     VALUES
-        ('1024588020', 'GERENCIA JURÍDICA', 'Gestionador')
+        ('4888175', 'N/A', 'Aprobador')
 ),
 datos_calculados AS (
-    SELECT
-        dc.documento_usuario,
-        dc.nombre_ubicacion,
-        dc.nombre_rol,
-        u.id AS usuario_id,
-        CASE
-            WHEN dc.nombre_ubicacion IN ('GRUPO PQRD INDEMNIZACIONES', 'GRUPO PQRD MÉDICA', 'GRUPO ADMINISTRACIÓN DE PENSIONES', 'GERENCIA MEDICA EXCELENCIA', '6 GRUPO JUNTAS DE CALIFICACIÓN', '6 GRUPO CENTRO DE EXCELENCIA', 'GRUPO DE ATENCIÓN INTEGRAL Y DE SERVICIO AL CIUDADANO', 'GRUPO TUTELAS', 'ADMINISTRACION DE PRESTACIONES PERIODICAS', 'PUNTO DE ATENCIÓN APARTADÓ', 'PUNTO DE ATENCIÓN AMAZONAS', 'PUNTO DE ATENCIÓN BUENAVENTURA')
-            THEN (SELECT id_dependencia FROM oficina o_esp WHERE o_esp.nombre = dc.nombre_ubicacion)
-            ELSE (SELECT idseccionsubseccion FROM seccionsubseccion ss WHERE ss.nombre = dc.nombre_ubicacion) -- Assuming 'id' is the correct column name here
-        END AS seccionsubseccion_id,
-        CASE
-            WHEN dc.nombre_ubicacion IN ('GRUPO PQRD INDEMNIZACIONES', 'GRUPO PQRD MÉDICA', 'GRUPO ADMINISTRACIÓN DE PENSIONES', 'GERENCIA MEDICA EXCELENCIA', '6 GRUPO JUNTAS DE CALIFICACIÓN', '6 GRUPO CENTRO DE EXCELENCIA', 'GRUPO DE ATENCIÓN INTEGRAL Y DE SERVICIO AL CIUDADANO', 'GRUPO TUTELAS', 'ADMINISTRACION DE PRESTACIONES PERIODICAS', 'PUNTO DE ATENCIÓN APARTADÓ', 'PUNTO DE ATENCIÓN AMAZONAS', 'PUNTO DE ATENCIÓN BUENAVENTURA')
-            THEN (SELECT id FROM oficina o_esp WHERE o_esp.nombre = dc.nombre_ubicacion)
-            ELSE NULL
-        END AS oficina_id,
-        r.id AS rol_id,
-        CASE
-            WHEN dc.nombre_ubicacion IN ('GRUPO PQRD INDEMNIZACIONES', 'GRUPO PQRD MÉDICA', 'GRUPO ADMINISTRACIÓN DE PENSIONES', 'GERENCIA MEDICA EXCELENCIA', '6 GRUPO JUNTAS DE CALIFICACIÓN', '6 GRUPO CENTRO DE EXCELENCIA', 'GRUPO DE ATENCIÓN INTEGRAL Y DE SERVICIO AL CIUDADANO', 'GRUPO TUTELAS', 'ADMINISTRACION DE PRESTACIONES PERIODICAS', 'PUNTO DE ATENCIÓN APARTADÓ', 'PUNTO DE ATENCIÓN AMAZONAS', 'PUNTO DE ATENCIÓN BUENAVENTURA') THEN 'GRUPO_ESPECIAL'
-            ELSE 'SECCION_UNICA'
-        END AS tipo_ubicacion_mapeo
-    FROM
-        datos_crudos dc
-    LEFT JOIN usuarios u ON u.numero_documento = dc.documento_usuario
-    LEFT JOIN roles r ON r.nombre = dc.nombre_rol
+                SELECT
+                    dc.documento_usuario,
+                    dc.nombre_ubicacion,
+                    dc.nombre_rol,
+                    u.id AS usuario_id,
+                    r.id AS rol_id,
+                    o.id_dependencia AS seccionsubseccion_id_oficina,
+                    o.id AS oficina_id,
+                    s.idseccionsubseccion AS seccionsubseccion_id_seccion,
+                    CASE
+                        WHEN o.id IS NOT NULL THEN 'GRUPO_ESPECIAL'
+                        ELSE 'SECCION_UNICA'
+                    END AS tipo_ubicacion_mapeo
+                FROM datos_crudos dc
+                LEFT JOIN usuarios u ON u.numero_documento = dc.documento_usuario
+                LEFT JOIN roles r ON r.nombre = dc.nombre_rol
+                LEFT JOIN oficina o ON o.nombre = dc.nombre_ubicacion
+                LEFT JOIN seccionsubseccion s ON s.nombre = dc.nombre_ubicacion
 )
 INSERT INTO usuario_relacion (usuario_id, seccionsubseccion_id, oficina_id, rol_id, punto_radicacion_id)
 SELECT

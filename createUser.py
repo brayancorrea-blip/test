@@ -5,6 +5,8 @@ from datetime import datetime
 import requests
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from sshtunnel import SSHTunnelForwarder
+import os
 
 # --- Configuración de Logs ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,6 +22,24 @@ CLIENT_SECRET = "kmgmRbXYwvoxlwmo461B7kUGRbl1zv8C"
 BONITA_URL = "https://sgdea-prod.proyectos-3t.tech"
 BONITA_ADMIN_USER = "tech_user_prod"
 BONITA_ADMIN_PASS = "nvq8cYzodOav6O"
+
+# --- Configuración de Conexión SSH ---
+# Host público del servidor SSH
+SSH_SERVER_HOST = "34.148.129.131"
+# Usuario de conexión SSH
+SSH_SERVER_USER = "ubuntu"
+# Ruta a la clave privada .pem
+SSH_PRIVATE_KEY_PATH = "C:\\Users\\Brayan Correa\\Downloads\\key-positiva-prod.pem" 
+# Puerto SSH
+SSH_PORT = 22
+
+# --- Configuración de la Base de Datos ---
+# Host de PostgreSQL (accesible desde el servidor SSH)
+DB_HOST = "172.26.0.5"
+DB_PORT = 5432
+DB_NAME = "gcpprolinktic"
+DB_USER = "postgres"
+DB_PASS = "IMlCXSQOkvbGNG6i"
 
 # --- Configuración General ---
 DEFAULT_PASSWORD = "Sgdea2025*"
@@ -161,35 +181,26 @@ def crear_usuario_bonita(session, user_data):
         logger.error(f"[Bonita] Error procesando usuario {user_data['username']}: {e}")
         return False
 
-# Conexión a PostgreSQL
-conn = psycopg2.connect(
-    host="34.148.129.131",
-    database="gcpprolinktic",
-    user="postgres",
-    password="IMlCXSQOkvbGNG6i"
-)
-cursor = conn.cursor()
+# --- Funciones de la Base de Datos ---
+def get_db_connection(local_port):
+    """Establece una conexión a la base de datos a través del túnel SSH."""
+    return psycopg2.connect(
+        host='127.0.0.1',  # Siempre localhost para el túnel
+        port=local_port,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASS
+    )
 
-# Obtener cargos disponibles
-cursor.execute("SELECT nombre, id FROM cargos")
-cargos_dict = {nombre.upper(): id_ for nombre, id_ in cursor.fetchall()}
-
-usuarios_a_insertar = []
-usuarios_excel = []
-
-# Inicializar sesiones de Keycloak y Bonita
-try:
-    keycloak_token = obtener_token_admin()
-    bonita_session = iniciar_sesion_bonita()
-    logger.info("Conexiones establecidas")
-except Exception as e:
-    logger.error(f"Error de conexión: {e}")
-    cursor.close()
-    conn.close()
-    raise
+def usuario_existe_en_bd(documento, local_port):
+    """Verifica si un usuario existe en la BD a través del túnel."""
+    with get_db_connection(local_port) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM usuarios WHERE numero_documento = %s", (documento,))
+            return cursor.fetchone() is not None
 
 # Función para procesar un usuario individual
-def procesar_usuario_individual(row, keycloak_token, bonita_session, cargos_dict):
+def procesar_usuario_individual(row, keycloak_token, bonita_session, cargos_dict, local_port):
     try:
         cargo_nombre = to_upper_preserve_accents(row['charge'].strip())
         user_type = map_user_type(row['usertype'])
@@ -222,7 +233,7 @@ def procesar_usuario_individual(row, keycloak_token, bonita_session, cargos_dict
 
         # Preparar datos para inserción en BD
         usuario = None
-        if not usuario_existe_en_bd(documento):
+        if not usuario_existe_en_bd(documento, local_port):
             usuario = (
                 documento,
                 row['name'],
@@ -249,96 +260,86 @@ def procesar_usuario_individual(row, keycloak_token, bonita_session, cargos_dict
         logger.error(f"Error procesando usuario {documento}: {e}")
         return (nombre_completo, documento, f"Error: {str(e)}", "Error", "Error", None)
 
-def usuario_existe_en_bd(documento):
-    with psycopg2.connect(
-        host="34.148.129.131",
-        database="gcpprolinktic",
-        user="postgres",
-        password="IMlCXSQOkvbGNG6i"
-    ) as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM usuarios WHERE numero_documento = %s", (documento,))
-            return cursor.fetchone() is not None
-
-# Función principal
+# --- Función principal ---
 def main():
     logger.info("=== Iniciando el proceso de gestión de usuarios ===")
     
     try:
-        # Inicializar conexiones
-        keycloak_token = obtener_token_admin()
-        bonita_session = iniciar_sesion_bonita()
-        logger.info("✅ Conexiones establecidas con éxito")
-
-        # Obtener cargos disponibles
-        with psycopg2.connect(
-            host="34.148.129.131",
-            database="gcpprolinktic",
-            user="postgres",
-            password="IMlCXSQOkvbGNG6i"
-        ) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT nombre, id FROM cargos")
-                cargos_dict = {nombre.upper(): id_ for nombre, id_ in cursor.fetchall()}
-
-        usuarios_a_insertar = []
-        usuarios_excel = []
-
-        # Leer y procesar usuarios
-        with open('usuarios2.csv', newline='', encoding='utf-8') as csvfile:
-            reader = list(csv.DictReader(csvfile))
-            logger.info(f"Procesando {len(reader)} usuarios usando {MAX_THREADS} hilos...")
+        with SSHTunnelForwarder(
+            (SSH_SERVER_HOST, SSH_PORT),
+            ssh_username=SSH_SERVER_USER,
+            ssh_pkey=SSH_PRIVATE_KEY_PATH,
+            remote_bind_address=(DB_HOST, DB_PORT)
+        ) as tunnel:
             
-            with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-                futures = [executor.submit(
-                    procesar_usuario_individual,
-                    row,
-                    keycloak_token,
-                    bonita_session,
-                    cargos_dict
-                ) for row in reader]
+            local_port = tunnel.local_bind_port
+            logger.info(f"✅ Túnel SSH establecido. Conectando a PostgreSQL en 127.0.0.1:{local_port}")
 
-                for future in futures:
-                    result = future.result()
-                    usuarios_excel.append(result[:5])
-                    if result[5]:  # Si hay datos para insertar en BD
-                        usuarios_a_insertar.append(result[5])
+            # Inicializar conexiones
+            keycloak_token = obtener_token_admin()
+            bonita_session = iniciar_sesion_bonita()
+            logger.info("✅ Conexiones a Keycloak y Bonita establecidas con éxito")
 
-        # Insertar usuarios en la base de datos
-        if usuarios_a_insertar:
-            with psycopg2.connect(
-                host="34.148.129.131",
-                database="gcpprolinktic",
-                user="postgres",
-                password="IMlCXSQOkvbGNG6i"
-            ) as conn:
+            # Obtener cargos disponibles a través del túnel
+            with get_db_connection(local_port) as conn:
                 with conn.cursor() as cursor:
-                    from psycopg2.extras import execute_values
-                    insert_query = """
-                    INSERT INTO usuarios (
-                        user_name, first_name, last_name, enabled, email, numero_documento,
-                        modulo_id, tipousuario, tipo_documento, accion_modificacion,
-                        departamento_id, municipio_id, cargo, timeout_min
-                    ) VALUES %s
-                    """
-                    execute_values(cursor, insert_query, usuarios_a_insertar)
-                    conn.commit()
-                    logger.info(f"✅ Se insertaron {len(usuarios_a_insertar)} usuarios en la base de datos")
-        else:
-            logger.info("ℹ️ No se insertó ningún usuario en la base de datos")
+                    cursor.execute("SELECT nombre, id FROM cargos")
+                    cargos_dict = {nombre.upper(): id_ for nombre, id_ in cursor.fetchall()}
 
-        # Generar reporte Excel
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-        output_filename = f"usuarios_insertados_{timestamp}.xlsx"
+            usuarios_a_insertar = []
+            usuarios_excel = []
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Resultado Usuarios"
-        ws.append(["Usuario", "Documento", "Estado", "Estado Keycloak", "Estado Bonita"])
-        for usuario in usuarios_excel:
-            ws.append(list(usuario))
-        wb.save(output_filename)
-        logger.info(f"📄 Reporte generado: {output_filename}")
+            # Leer y procesar usuarios
+            with open('usuarios2.csv', newline='', encoding='utf-8') as csvfile:
+                reader = list(csv.DictReader(csvfile))
+                logger.info(f"Procesando {len(reader)} usuarios usando {MAX_THREADS} hilos...")
+                
+                with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+                    futures = [executor.submit(
+                        procesar_usuario_individual,
+                        row,
+                        keycloak_token,
+                        bonita_session,
+                        cargos_dict,
+                        local_port
+                    ) for row in reader]
+
+                    for future in futures:
+                        result = future.result()
+                        usuarios_excel.append(result[:5])
+                        if result[5]:
+                            usuarios_a_insertar.append(result[5])
+
+            # Insertar usuarios en la base de datos
+            if usuarios_a_insertar:
+                with get_db_connection(local_port) as conn:
+                    with conn.cursor() as cursor:
+                        from psycopg2.extras import execute_values
+                        insert_query = """
+                        INSERT INTO usuarios (
+                            user_name, first_name, last_name, enabled, email, numero_documento,
+                            modulo_id, tipousuario, tipo_documento, accion_modificacion,
+                            departamento_id, municipio_id, cargo, timeout_min
+                        ) VALUES %s
+                        """
+                        execute_values(cursor, insert_query, usuarios_a_insertar)
+                        conn.commit()
+                        logger.info(f"✅ Se insertaron {len(usuarios_a_insertar)} usuarios en la base de datos")
+            else:
+                logger.info("ℹ️ No se insertó ningún usuario en la base de datos")
+
+            # Generar reporte Excel
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            output_filename = f"usuarios_insertados_{timestamp}.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Resultado Usuarios"
+            ws.append(["Usuario", "Documento", "Estado", "Estado Keycloak", "Estado Bonita"])
+            for usuario in usuarios_excel:
+                ws.append(list(usuario))
+            wb.save(output_filename)
+            logger.info(f"📄 Reporte generado: {output_filename}")
 
     except Exception as e:
         logger.error(f"Error en el proceso principal: {e}", exc_info=True)
